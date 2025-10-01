@@ -6,11 +6,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Verificação de compatibilidade ---
     if (!navigator.bluetooth) {
-        statusBar.textContent = 'Web Bluetooth não suportado. Use Chrome/Edge (Desktop ou Android).';
+        statusBar.textContent = 'Web Bluetooth não suportado. Use Chrome/Edge. (Pode ser necessário ativar uma flag no Chrome, veja o console para detalhes).';
         statusBar.className = 'status disconnected';
         btnConnect.disabled = true;
         controlsDiv.style.display = 'none';
-        console.error('Web Bluetooth API not available. Please use a compatible browser like Chrome or Edge.');
+        console.error('Web Bluetooth API not available. If you are using Chrome and see this error, you may need to enable experimental features. Navigate to chrome://flags/#enable-experimental-web-platform-features, enable the flag, and restart your browser.');
         return; // Para a execução do restante do script de inicialização.
     }
     

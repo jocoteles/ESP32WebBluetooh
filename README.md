@@ -38,6 +38,7 @@ A PWA usa a API Web Bluetooth do navegador para se conectar ao ESP32.
 3.  **PWA (Cliente):**
     *   Um navegador com suporte a Web Bluetooth (Chrome, Edge, Opera em Desktop e Android).
     *   Um servidor web para hospedar os arquivos do PWA. **GitHub Pages** é uma excelente opção gratuita. **Web Bluetooth requer uma conexão segura (HTTPS)**, que o GitHub Pages fornece por padrão.
+    *   **Nota sobre o Chrome:** Em alguns ambientes ou versões, o Chrome pode exigir que você ative uma flag para recursos experimentais. Se a aplicação reportar que o Web Bluetooth não é suportado, navegue até `chrome://flags/#enable-experimental-web-platform-features`, ative a opção e reinicie o navegador.
 
 ### Passos
 
