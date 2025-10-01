@@ -2,6 +2,8 @@
 
 Este projeto fornece uma base clara e pragmática para a comunicação entre um microcontrolador ESP32 e uma Progressive Web App (PWA) usando exclusivamente a API Web Bluetooth. A comunicação é dividida em dois canais principais: um para controle de variáveis de baixa frequência (via JSON) e outro para streaming de dados de alta frequência (via pacotes binários).
 
+Também implementamos uma [versão Websocket deste projeto](https://github.com/jocoteles/ESP32WebsocketControl) para quem tiver interesse.
+
 ## Filosofia do Projeto
 
 **Clareza sobre robustez.** O código foi escrito para ser o mais legível e fácil de entender possível. Privilegiamos a clareza, a legibilidade e o pragmatismo em detrimento de testes de borda e checagens excessivas. O objetivo é fornecer um ponto de partida sólido que possa ser facilmente modificado e adaptado, em vez de uma biblioteca "à prova de tudo".
