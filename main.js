@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let isStreaming = false;
     let debounceTimer;
+    let streamReadingsCount = 0;
 
     // --- Funções de atualização da UI ---
     
@@ -46,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
             statusBar.textContent = 'Desconectado';
             statusBar.className = 'status disconnected';
             isStreaming = false;
+            streamReadingsCount = 0;
+            streamOutput.textContent = 'Aguardando dados...';
             updateStreamButtons();
         }
     }
@@ -112,6 +115,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event listeners para o streaming
 
     btnStartStream.addEventListener('click', async () => {
+        streamReadingsCount = 0;
+        streamOutput.textContent = 'Iniciando stream...';
         await ewbClient.startStream(handleStreamData);
         isStreaming = true;
         updateStreamButtons();
@@ -124,8 +129,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function handleStreamData(packet) {
-        // Atualiza a UI com os dados do pacote recebido
-        streamOutput.textContent = JSON.stringify(packet, null, 2);
+        streamReadingsCount++;
+        // Atualiza a UI com a contagem e os dados do pacote recebido
+        streamOutput.textContent = `Total de leituras: ${streamReadingsCount}\n\n${JSON.stringify(packet, null, 2)}`;
     }
     
     // Inicialização da UI
