@@ -61,6 +61,8 @@ A PWA usa a API Web Bluetooth do navegador para se conectar ao ESP32.
 4.  Em "Source", selecione a branch `main` (ou `master`) e a pasta `/root`. Clique em `Save`.
 5.  Aguarde alguns minutos. O GitHub irá publicar seu site em um endereço como `https://<seu-usuario>.github.io/<seu-repositorio>/`.
 
+Obs.: antes de hospedar a sua própria versão do PWA, você pode testar a versão de teste deste projeto em https://jocoteles.github.io/ESP32WebBluetooh/.
+
 ---
 
 ## Como Rodar e Testar
