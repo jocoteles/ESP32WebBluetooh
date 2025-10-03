@@ -155,14 +155,13 @@ void MyServerCallbacks::onDisconnect(BLEServer* pServer) {
 JsonCharacteristicCallbacks::JsonCharacteristicCallbacks(EWBServer* serverInstance) : server(serverInstance) {}
 
 void JsonCharacteristicCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
-  // <-- CORREÇÃO: Usar .c_str() para converter de String para std::string
-  std::string value = pCharacteristic->getValue().c_str();
+  String value = pCharacteristic->getValue(); // USA String DO ARDUINO
   if (value.length() > 0) {
     Serial.print("Received JSON: ");
-    Serial.println(value.c_str());
+    Serial.println(value);
 
     StaticJsonDocument<256> doc;
-    DeserializationError error = deserializeJson(doc, value);
+    DeserializationError error = deserializeJson(doc, value); // Funciona com String
 
     if (error) {
       Serial.print("deserializeJson() failed: ");
@@ -173,7 +172,6 @@ void JsonCharacteristicCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
     if (doc.containsKey("get")) {
       Serial.println("'get' command received. State will be sent on next read.");
     } else if (doc.containsKey("set")) {
-      // Agora esta chamada é permitida por causa da declaração 'friend'
       server->handleJsonSet(doc);
     }
   }
@@ -198,8 +196,7 @@ StreamControlCallbacks::StreamControlCallbacks(StreamCallback onStart, StreamCal
     : onStreamStart(onStart), onStreamStop(onStop) {}
 
 void StreamControlCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
-  // <-- Usar .c_str() para converter de String para std::string
-  std::string value = pCharacteristic->getValue().c_str();
+  String value = pCharacteristic->getValue(); // USA String DO ARDUINO
   if (value.length() == 1) {
     if (value[0] == 0x01 && onStreamStart) {
       Serial.println("Stream Start command received.");

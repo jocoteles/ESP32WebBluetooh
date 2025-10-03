@@ -1,6 +1,7 @@
 /**
  * @file EWBclient.js
  * @brief Abstrai a comunicação Web Bluetooth para o projeto ESP32WebBluetooth.
+ * @version 2.0 - Refatorado para gerenciamento robusto de event listener.
  */
 
 // UUIDs devem ser idênticos aos definidos no firmware do ESP32
@@ -16,8 +17,15 @@ class EWBClient {
         this.jsonVarsChar = null;
         this.streamDataChar = null;
         this.streamControlChar = null;
-
         this.onDisconnectCallback = null;
+
+        // Callback do usuário para dados de stream
+        this.onStreamData = null;
+
+        // Handler de evento fixo e pré-vinculado ('bound').
+        // Isso garante que 'this' dentro da função esteja correto e que a
+        // referência da função seja estável para add/removeEventListener.
+        this._streamDataListener = this._handleStreamDataEvent.bind(this);
     }
 
     /**
@@ -53,6 +61,10 @@ class EWBClient {
 
         } catch (error) {
             console.error('Connection failed!', error);
+            if (this.device) {
+                // Limpa o listener de desconexão se a conexão falhar no meio do caminho
+                this.device.removeEventListener('gattserverdisconnected', this._onDisconnect.bind(this));
+            }
             throw error;
         }
     }
@@ -73,6 +85,16 @@ class EWBClient {
      */
     _onDisconnect() {
         console.log('Device disconnected.');
+        // Garante que o listener seja removido na desconexão como uma medida de segurança.
+        if (this.streamDataChar) {
+            try {
+                this.streamDataChar.removeEventListener('characteristicvaluechanged', this._streamDataListener);
+            } catch (e) {
+                console.warn("Could not remove stream listener on disconnect:", e);
+            }
+        }
+        this.onStreamData = null;
+        
         if (this.onDisconnectCallback) {
             this.onDisconnectCallback();
         }
@@ -108,22 +130,29 @@ class EWBClient {
         await this.jsonVarsChar.writeValue(textEncoder.encode(jsonString));
     }
 
+    /**
+     * Define a função que será chamada sempre que um novo pacote de dados de stream chegar.
+     * Esta função deve ser configurada uma vez após a conexão.
+     * @param {function(Object)} callback A função para processar o pacote de dados.
+     */
+    setOnStreamData(callback) {
+        this.onStreamData = callback;
+    }
 
     /**
-     * Inicia o streaming de dados e registra um callback para processar os dados recebidos.
-     * @param {function(Object)} onDataCallback - Função chamada com cada pacote de dados decodificado.
+     * Inicia o streaming de dados.
      */
-    async startStream(onDataCallback) {
-        // Registra o listener para as notificações de dados
-        this.streamDataChar.addEventListener('characteristicvaluechanged', (event) => {
-            this._handleStreamData(event.target.value, onDataCallback);
-        });
+    async startStream() {
+        if (!this.streamDataChar) {
+            console.error("Stream characteristic not available.");
+            return;
+        }
+        // Adiciona o listener de evento.
+        this.streamDataChar.addEventListener('characteristicvaluechanged', this._streamDataListener);
 
-        // Inicia as notificações no dispositivo
         await this.streamDataChar.startNotifications();
         console.log('Stream notifications started.');
 
-        // Envia o comando para o ESP32 iniciar o envio dos dados
         const startCommand = new Uint8Array([0x01]);
         await this.streamControlChar.writeValue(startCommand);
         console.log('Stream START command sent.');
@@ -133,22 +162,33 @@ class EWBClient {
      * Para o streaming de dados.
      */
     async stopStream() {
-        // Envia o comando para o ESP32 parar o envio dos dados
+        if (!this.streamControlChar || !this.streamDataChar) {
+            console.error("Stream characteristics not available.");
+            return;
+        }
         const stopCommand = new Uint8Array([0x00]);
         await this.streamControlChar.writeValue(stopCommand);
         console.log('Stream STOP command sent.');
         
-        // Para de ouvir as notificações
+        // Remove o listener de evento. Esta é a parte crítica para evitar "listeners zumbis".
+        this.streamDataChar.removeEventListener('characteristicvaluechanged', this._streamDataListener);
+        
+        // Para as notificações do dispositivo.
         await this.streamDataChar.stopNotifications();
         console.log('Stream notifications stopped.');
     }
-
+    
     /**
-     * Processa o buffer de dados binários recebido do ESP32.
-     * @param {DataView} dataView - O buffer de dados recebido.
-     * @param {function} callback - A função para chamar com os dados decodificados.
+     * Handler interno que é chamado pelo evento 'characteristicvaluechanged'.
+     * Ele decodifica os dados e chama o callback do usuário (onStreamData).
+     * @param {Event} event O evento de notificação do Bluetooth.
      */
-    _handleStreamData(dataView, callback) {
+    _handleStreamDataEvent(event) {
+        if (!this.onStreamData) {
+            return;
+        }
+
+        const dataView = event.target.value;
         // A estrutura no ESP32 é: 6x uint16_t + 1x uint32_t = 16 bytes por pacote
         const packetSizeBytes = (6 * 2) + 4;
         const numPackets = dataView.byteLength / packetSizeBytes;
@@ -164,7 +204,8 @@ class EWBClient {
                 reading6: dataView.getUint16(offset + 10, true),
                 time_ms: dataView.getUint32(offset + 12, true)
             };
-            callback(packet);
+            // Chama a função que foi definida em main.js via setOnStreamData
+            this.onStreamData(packet);
         }
     }
 }

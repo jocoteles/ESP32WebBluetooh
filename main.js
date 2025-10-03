@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             statusBar.textContent = 'Desconectado';
             statusBar.className = 'status disconnected';
-            isStreaming = false;
+            isStreaming = false; // Garante que o estado de stream seja resetado na desconexão
             streamReadingsCount = 0;
             streamOutput.textContent = 'Aguardando dados...';
             updateStreamButtons();
@@ -72,6 +72,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await ewbClient.connect();
             setUIConnected(true);
+
+            // *** MUDANÇA CRÍTICA: Define o callback de dados UMA VEZ após conectar ***
+            // Isso evita a criação de múltiplos "listeners" a cada início de stream.
+            ewbClient.setOnStreamData(handleStreamData);
+
             const variables = await ewbClient.getVariables();
             updateVariablesUI(variables);
         } catch (error) {
@@ -93,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
     inputLedIntensity.addEventListener('input', () => {
         const value = parseInt(inputLedIntensity.value, 10);
         valueLedIntensity.textContent = value;
-        // Debounce para não enviar muitos comandos rapidamente
+        // Debounce para não enviar muitos comandos rapidamente enquanto o usuário arrasta o slider
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
             ewbClient.setVariables({ led_intensity: value });
@@ -117,7 +122,8 @@ document.addEventListener('DOMContentLoaded', () => {
     btnStartStream.addEventListener('click', async () => {
         streamReadingsCount = 0;
         streamOutput.textContent = 'Iniciando stream...';
-        await ewbClient.startStream(handleStreamData);
+        // O callback já foi definido na conexão, então apenas iniciamos o stream.
+        await ewbClient.startStream();
         isStreaming = true;
         updateStreamButtons();
     });
