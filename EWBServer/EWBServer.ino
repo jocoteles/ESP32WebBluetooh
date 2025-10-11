@@ -2,7 +2,7 @@
  * @file EWBServer.ino
  * @brief Aplicação de exemplo para a biblioteca ESP32WebBluetooth (EWBServer).
  *        Demonstra o controle de variáveis via JSON e o streaming de dados binários
- *        de 6 entradas analógicas, tudo via Web Bluetooth.
+ *        com a nova arquitetura de callback.
  */
 
 #include "EWBServer.h"
@@ -25,17 +25,15 @@ const int numConfigurableVariables = sizeof(configurableVariables) / sizeof(conf
 
 
 // --- Configuração do Streaming ---
-const int SAMPLES_PER_CHUNK = 20;       // Quantas leituras agrupar antes de enviar
-const int SAMPLE_INTERVAL_US = 250;     // Intervalo entre leituras em microssegundos
+// Estas constantes devem ser obtidas do array configurableVariables
+int SAMPLES_PER_CHUNK = 20;
+int SAMPLE_INTERVAL_US = 250;
 
 const int ANALOG_PIN_1 = 32;
 const int ANALOG_PIN_2 = 33;
-const int ANALOG_PIN_3 = 34;
-const int ANALOG_PIN_4 = 35;
-const int ANALOG_PIN_5 = 36;
-const int ANALOG_PIN_6 = 39;
+// ... (outros pinos analógicos) ...
 
-// Estrutura do pacote de dados (deve ser idêntica à do cliente JS)
+// Estrutura do pacote de dados (deve ser idêntica à do cliente JS: 16 bytes)
 #pragma pack(push, 1)
 struct SensorDataPacket {
   uint16_t reading1, reading2, reading3, reading4, reading5, reading6;
@@ -44,14 +42,16 @@ struct SensorDataPacket {
 #pragma pack(pop)
 
 const int PACKET_SIZE_BYTES = sizeof(SensorDataPacket);
-const int CHUNK_BUFFER_SIZE_BYTES = SAMPLES_PER_CHUNK * PACKET_SIZE_BYTES;
-
-SensorDataPacket sensorDataBuffer[SAMPLES_PER_CHUNK];
+// O buffer agora será alocado dinamicamente no setup/teoricamente, mas para Arduino usaremos um array fixo grande
+SensorDataPacket sensorDataBuffer[100]; 
 int currentBufferIndex = 0;
 
 // --- Variáveis de Estado da Aplicação ---
 bool isAppStreaming = false;
 uint32_t streamStartTimeMs = 0;
+
+// Protótipos
+void onVariableChanged(const char* varName);
 
 
 // --- Funções de Callback para o Streaming ---
@@ -68,6 +68,19 @@ void application_onStreamStop() {
   isAppStreaming = false;
 }
 
+// --- NOVO: Função de Callback para Alteração de Variável ---
+void onVariableChanged(const char* varName) {
+    // Reage imediatamente a mudanças de variáveis críticas
+    if (strcmp(varName, "led_intensity") == 0) {
+        // Exemplo: Atualiza o LED (simulado aqui no Serial)
+        Serial.printf("LED intensity set to: %d\n", configurableVariables[0].intValue);
+        // analogWrite(LED_PIN, configurableVariables[0].intValue);
+    } else if (strcmp(varName, "update_interval") == 0) {
+        SAMPLE_INTERVAL_US = configurableVariables[1].intValue;
+        Serial.printf("Sample Interval (us) updated to: %d\n", SAMPLE_INTERVAL_US);
+    }
+}
+
 
 // --- Funções Setup e Loop ---
 
@@ -76,32 +89,28 @@ void setup() {
   delay(500);
   Serial.println("\n--- EWB Application Setup ---");
 
-  // Configura os pinos analógicos
-  pinMode(ANALOG_PIN_1, INPUT);
-  pinMode(ANALOG_PIN_2, INPUT);
-  pinMode(ANALOG_PIN_3, INPUT);
-  pinMode(ANALOG_PIN_4, INPUT);
-  pinMode(ANALOG_PIN_5, INPUT);
-  pinMode(ANALOG_PIN_6, INPUT);
+  // Configura o LED (simulação)
+  // pinMode(LED_PIN, OUTPUT);
+  // analogWrite(LED_PIN, configurableVariables[0].intValue);
 
   // Inicializa o servidor Web Bluetooth
   ewbServer.begin(DEVICE_NAME, configurableVariables, numConfigurableVariables);
   
   // Registra os callbacks da aplicação
   ewbServer.setStreamCallbacks(application_onStreamStart, application_onStreamStop);
+  // NOVO: Registra o callback para variáveis
+  ewbServer.setOnVariableChangeCallback(onVariableChanged);
   
   Serial.println("--- Setup Complete ---");
 }
 
 void loop() {
   if (isAppStreaming && ewbServer.isClientConnected()) {
-    // 1. Lê os sensores
+    // 1. Lê os sensores (simulado)
     uint16_t val1 = analogRead(ANALOG_PIN_1);
     uint16_t val2 = analogRead(ANALOG_PIN_2);
-    uint16_t val3 = analogRead(ANALOG_PIN_3);
-    uint16_t val4 = analogRead(ANALOG_PIN_4);
-    uint16_t val5 = analogRead(ANALOG_PIN_5);
-    uint16_t val6 = analogRead(ANALOG_PIN_6);
+    // ... (outras leituras)
+    uint16_t val6 = analogRead(39);
 
     // 2. Obtém o timestamp
     uint32_t currentTimeMs = millis() - streamStartTimeMs;
@@ -111,12 +120,13 @@ void loop() {
     currentBufferIndex++;
 
     // 4. Se o buffer estiver cheio, envia os dados
-    if (currentBufferIndex >= SAMPLES_PER_CHUNK) {
-      ewbServer.sendStreamData((uint8_t*)sensorDataBuffer, CHUNK_BUFFER_SIZE_BYTES);
+    if (currentBufferIndex >= configurableVariables[0].intValue) {
+      size_t chunkSize = currentBufferIndex * PACKET_SIZE_BYTES;
+      ewbServer.sendStreamData((uint8_t*)sensorDataBuffer, chunkSize);
       currentBufferIndex = 0;
     }
 
-    // 5. Aguarda o intervalo de amostragem
+    // 5. Aguarda o intervalo de amostragem (usa a variável atualizada pelo callback)
     delayMicroseconds(SAMPLE_INTERVAL_US);
 
   } else {

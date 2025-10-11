@@ -1,7 +1,7 @@
 /**
  * @file EWBclient.js
  * @brief Abstrai a comunicação Web Bluetooth para o projeto ESP32WebBluetooth.
- * @version 2.0 - Refatorado para gerenciamento robusto de event listener.
+ * @version 3.0 - Refatorado para gerenciamento robusto de fragmentação de dados BLE.
  */
 
 // UUIDs devem ser idênticos aos definidos no firmware do ESP32
@@ -9,6 +9,10 @@ const EWB_SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
 const JSON_VARS_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 const STREAM_DATA_CHAR_UUID = "82b934b0-a02c-4fb5-a818-a35752697d57";
 const STREAM_CONTROL_CHAR_UUID = "c8a4a259-4203-48e8-b39f-5a8b71d601b0";
+
+// O tamanho do pacote binário de dados de stream DEVE ser idêntico ao definido no ESP32.
+// Estrutura do exemplo: 6x uint16_t + 1x uint32_t = 16 bytes
+const PACKET_SIZE_BYTES = 16; 
 
 class EWBClient {
     constructor() {
@@ -23,9 +27,12 @@ class EWBClient {
         this.onStreamData = null;
 
         // Handler de evento fixo e pré-vinculado ('bound').
-        // Isso garante que 'this' dentro da função esteja correto e que a
-        // referência da função seja estável para add/removeEventListener.
         this._streamDataListener = this._handleStreamDataEvent.bind(this);
+        
+        // Novo buffer para lidar com a fragmentação de pacotes BLE
+        this._partialBuffer = new Uint8Array(0);
+        // Novo controle para ignorar pacotes duplicados
+        this._lastTime = -1; 
     }
 
     /**
@@ -94,6 +101,8 @@ class EWBClient {
             }
         }
         this.onStreamData = null;
+        this._partialBuffer = new Uint8Array(0); // Reseta o buffer
+        this._lastTime = -1; // Reseta o controle de duplicidade
         
         if (this.onDisconnectCallback) {
             this.onDisconnectCallback();
@@ -132,7 +141,6 @@ class EWBClient {
 
     /**
      * Define a função que será chamada sempre que um novo pacote de dados de stream chegar.
-     * Esta função deve ser configurada uma vez após a conexão.
      * @param {function(Object)} callback A função para processar o pacote de dados.
      */
     setOnStreamData(callback) {
@@ -147,6 +155,9 @@ class EWBClient {
             console.error("Stream characteristic not available.");
             return;
         }
+        this._partialBuffer = new Uint8Array(0); // Garante que o buffer esteja limpo
+        this._lastTime = -1;
+        
         // Adiciona o listener de evento.
         this.streamDataChar.addEventListener('characteristicvaluechanged', this._streamDataListener);
 
@@ -180,32 +191,56 @@ class EWBClient {
     
     /**
      * Handler interno que é chamado pelo evento 'characteristicvaluechanged'.
-     * Ele decodifica os dados e chama o callback do usuário (onStreamData).
+     * Lida com fragmentação e decodifica pacotes completos.
      * @param {Event} event O evento de notificação do Bluetooth.
      */
     _handleStreamDataEvent(event) {
-        if (!this.onStreamData) {
-            return;
+        if (!this.onStreamData) return;
+
+        const newData = new Uint8Array(event.target.value.buffer);
+
+        // 1. Combina dados parciais com os novos dados recebidos (tratamento de fragmentação)
+        const combined = new Uint8Array(this._partialBuffer.length + newData.length);
+        combined.set(this._partialBuffer);
+        combined.set(newData, this._partialBuffer.length);
+
+        let offset = 0;
+        const maxIterations = 1000; // Prevenção de loop infinito
+        let iterations = 0;
+
+        // 2. Processa pacotes completos
+        while (offset + PACKET_SIZE_BYTES <= combined.length && iterations++ < maxIterations) {
+            const packetBytes = combined.slice(offset, offset + PACKET_SIZE_BYTES);
+            const dataView = new DataView(packetBytes.buffer);
+            
+            // Decodificação específica do pacote de exemplo (16 bytes)
+            const time = dataView.getUint32(12, true);
+            
+            // Prevenção de duplicatas (pode acontecer em algumas stacks BLE)
+            if (time !== this._lastTime) { 
+                const packet = {
+                    reading1: dataView.getUint16(0, true), // true para little-endian
+                    reading2: dataView.getUint16(2, true),
+                    reading3: dataView.getUint16(4, true),
+                    reading4: dataView.getUint16(6, true),
+                    reading5: dataView.getUint16(8, true),
+                    reading6: dataView.getUint16(10, true),
+                    time_ms: time
+                };
+                // Chama a função que foi definida em main.js via setOnStreamData
+                this.onStreamData(packet);
+            }
+            this._lastTime = time;
+            offset += PACKET_SIZE_BYTES;
         }
 
-        const dataView = event.target.value;
-        // A estrutura no ESP32 é: 6x uint16_t + 1x uint32_t = 16 bytes por pacote
-        const packetSizeBytes = (6 * 2) + 4;
-        const numPackets = dataView.byteLength / packetSizeBytes;
+        // 3. Armazena bytes restantes (fragmento)
+        this._partialBuffer = combined.slice(offset);
 
-        for (let i = 0; i < numPackets; i++) {
-            const offset = i * packetSizeBytes;
-            const packet = {
-                reading1: dataView.getUint16(offset + 0, true), // true para little-endian
-                reading2: dataView.getUint16(offset + 2, true),
-                reading3: dataView.getUint16(offset + 4, true),
-                reading4: dataView.getUint16(offset + 6, true),
-                reading5: dataView.getUint16(offset + 8, true),
-                reading6: dataView.getUint16(offset + 10, true),
-                time_ms: dataView.getUint32(offset + 12, true)
-            };
-            // Chama a função que foi definida em main.js via setOnStreamData
-            this.onStreamData(packet);
+        // Caso o buffer fique muito grande (erro de sincronização prolongado), resetar
+        if (this._partialBuffer.length > 2 * PACKET_SIZE_BYTES) {
+            console.warn("⚠️ Buffer BLE fora de sincronia — resetando.");
+            this._partialBuffer = new Uint8Array(0);
         }
     }
 }
